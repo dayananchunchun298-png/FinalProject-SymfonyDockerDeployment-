@@ -3,37 +3,54 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: dayanan-app
     ports:
-      - "${APP_PORT:-8080}:80"
-    environment:
-      APP_ENV: prod
-      APP_DEBUG: "0"
-      APP_SECRET: ${APP_SECRET:-change-me-in-production}
-      PORT: "80"
-      DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@database:3306/${MYSQL_DATABASE}?serverVersion=8.0.32&charset=utf8mb4
-    depends_on:
-      database:
-        condition: service_healthy
-    restart: unless-stopped
-
-  database:
-    image: mysql:8.0
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-symfony}
-      MYSQL_USER: ${MYSQL_USER:-symfony}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-symfony}
-    ports:
-      - "${MYSQL_PORT:-3310}:3306"
+      - "8000:80"
     volumes:
-      - mysql_data:/var/lib/mysql
+      - ./src:/app/src
+      - ./templates:/app/templates
+      - ./public:/app/public
+      - ./var:/app/var
+    environment:
+      DATABASE_URL: "mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE}?serverVersion=8.0.32&charset=utf8mb4"
+      APP_ENV: dev
+      APP_DEBUG: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - platform-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
-      interval: 5s
+      test: [ "CMD", "curl", "-f", "http://localhost/" ]
+      interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 30s
-    restart: unless-stopped
+      retries: 3
+      start_period: 10s
+
+  db:
+    image: mysql:8.0
+    container_name: dayanan-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3310:3306"
+    volumes:
+      - platform-db-data:/var/lib/mysql
+    networks:
+      - platform-network
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
 volumes:
-  mysql_data:
+  platform-db-data:
+
+networks:
+  platform-network:
+    driver: bridge
