@@ -58,8 +58,6 @@ run_db_setup() {
     php bin/console cache:warmup --env=prod 2>&1 || true
 }
 
-run_db_setup &
-
 echo "Starting PHP-FPM..."
 if ! php-fpm -D 2>&1; then
     echo "php-fpm -D failed, trying --daemonize..."
@@ -69,7 +67,8 @@ if ! php-fpm -D 2>&1; then
     }
 fi
 
-sleep 2
+# DB setup after web server is up — avoids slowing Railway health checks
+( sleep 5 && run_db_setup ) &
 
 echo "Starting Nginx on 0.0.0.0:${PORT} ..."
 exec nginx -g "daemon off;"
