@@ -1,63 +1,74 @@
-FROM php:8.3-fpm as builder
+# syntax=docker/dockerfile:1
+
+# -----------------------------------------------------------------------------
+# Stage 1: Composer build
+# -----------------------------------------------------------------------------
+FROM composer:2 AS vendor
 
 WORKDIR /app
-
-RUN apt-get update && apt-get install -y \
-    git \
-    unzip \
-    curl \
-    nodejs \
-    npm \
-    && docker-php-ext-install pdo pdo_mysql \
-    && rm -rf /var/lib/apt/lists/*
-
-# THE FIX: We bypass curl entirely and copy the pre-compiled binary
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 ENV COMPOSER_ALLOW_SUPERUSER=1
 
-COPY composer.json composer.lock ./
+COPY composer.json composer.lock symfony.lock ./
 
-RUN composer install --no-interaction --no-scripts --optimize-autoloader
+RUN composer install \
+    --no-dev \
+    --no-scripts \
+    --no-autoloader \
+    --prefer-dist \
+    --ignore-platform-reqs
 
 COPY . .
 
-RUN if [ ! -f /app/.env ]; then echo "APP_ENV=${APP_ENV:-prod}\nAPP_DEBUG=${APP_DEBUG:-false}\nAPP_SECRET=${APP_SECRET:-ChangeMe}\n" > /app/.env; fi
+RUN composer dump-autoload --classmap-authoritative --no-dev
 
-# Now run post-install scripts after app code is available
-RUN composer install --no-interaction --optimize-autoloader --no-ansi || true
-RUN php bin/console importmap:install --no-interaction
+ENV APP_ENV=prod
+ENV APP_DEBUG=0
+ENV APP_SECRET=build-time-secret-change-in-production
 
-RUN php bin/console cache:warmup --env=prod --no-debug || true
+RUN composer dump-env prod \
+    && php bin/console importmap:install --no-interaction \
+    && php bin/console cache:clear --env=prod --no-warmup \
+    && php bin/console cache:warmup --env=prod \
+    && php bin/console asset-map:compile --env=prod
 
-FROM php:8.3-fpm as runtime
+# -----------------------------------------------------------------------------
+# Stage 2: Production runtime (Nginx + PHP-FPM)
+# -----------------------------------------------------------------------------
+FROM php:8.3-fpm-bookworm AS app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nginx \
+    gettext-base \
+    curl \
+    libicu-dev \
+    libzip-dev \
+    unzip \
+    pkg-config \
+    && docker-php-ext-configure intl \
+    && docker-php-ext-install -j1 intl opcache pdo_mysql zip \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY docker/php/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
+COPY docker/php/zz-docker.conf /usr/local/etc/php-fpm.d/zz-docker.conf
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
-    nginx \
-    curl \
-    && docker-php-ext-install pdo pdo_mysql \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /app /app
-
-RUN mkdir -p /app/var && \
-    chown -R www-data:www-data /app && \
-    chmod -R 755 /app && \
-    chmod -R 775 /app/var
+COPY --from=vendor /app /app
 
 COPY nginx-main.conf /etc/nginx/nginx.conf
+COPY nginx.conf /etc/nginx/templates/default.conf.template
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 
-RUN rm -rf /etc/nginx/conf.d/* /etc/nginx/sites-enabled /etc/nginx/sites-available
-COPY nginx.conf /etc/nginx/conf.d/symfony.conf
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh \
+    && chmod +x /usr/local/bin/entrypoint.sh \
+    && mkdir -p /run/php /var/cache/nginx var/cache var/log \
+    && chown -R www-data:www-data var public \
+    && rm -rf /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d/*
 
-COPY entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
-HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost/ || exit 1
+ENV APP_ENV=prod
+ENV APP_DEBUG=0
 
 EXPOSE 8080
 
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
