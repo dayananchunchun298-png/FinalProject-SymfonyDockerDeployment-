@@ -3,8 +3,30 @@
 # Railway injects PORT — default 8080 if missing
 export PORT="${PORT:-8080}"
 
+# Railway MySQL provides MYSQL_URL; Symfony needs DATABASE_URL
+if [ -z "$DATABASE_URL" ] && [ -n "$MYSQL_URL" ]; then
+    export DATABASE_URL="$MYSQL_URL"
+    echo "Using MYSQL_URL as DATABASE_URL"
+fi
+if [ -z "$DATABASE_URL" ] && [ -n "$MYSQL_PRIVATE_URL" ]; then
+    export DATABASE_URL="$MYSQL_PRIVATE_URL"
+    echo "Using MYSQL_PRIVATE_URL as DATABASE_URL"
+fi
+if [ -n "$DATABASE_URL" ] && [[ "$DATABASE_URL" != *"serverVersion"* ]]; then
+    if [[ "$DATABASE_URL" == *"?"* ]]; then
+        export DATABASE_URL="${DATABASE_URL}&serverVersion=8.0.32&charset=utf8mb4"
+    else
+        export DATABASE_URL="${DATABASE_URL}?serverVersion=8.0.32&charset=utf8mb4"
+    fi
+fi
+
 echo "=========================================="
 echo " Starting Symfony (PORT=${PORT})"
+if [ -n "$DATABASE_URL" ]; then
+    echo " DATABASE_URL is set"
+else
+    echo " WARNING: DATABASE_URL is NOT set — add it on Railway"
+fi
 echo "=========================================="
 
 mkdir -p /run/php /var/cache/nginx var/log/nginx var/cache var/log
