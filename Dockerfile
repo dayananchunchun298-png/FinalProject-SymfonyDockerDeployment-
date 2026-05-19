@@ -25,6 +25,7 @@ ENV APP_DEBUG=0
 ENV APP_SECRET=build-time-secret-change-in-production
 
 RUN composer dump-env prod \
+    && php bin/console importmap:install --no-interaction \
     && php bin/console cache:clear --env=prod --no-warmup \
     && php bin/console cache:warmup --env=prod \
     && php bin/console asset-map:compile --env=prod
@@ -40,8 +41,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libicu-dev \
     libzip-dev \
     unzip \
+    pkg-config \
     && docker-php-ext-configure intl \
-    && docker-php-ext-install -j"$(nproc)" intl opcache pdo_mysql zip \
+    && docker-php-ext-install -j1 intl opcache pdo_mysql zip \
     && rm -rf /var/lib/apt/lists/*
 
 COPY docker/php/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
