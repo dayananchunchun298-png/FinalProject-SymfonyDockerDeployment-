@@ -47,6 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY docker/php/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
+COPY docker/php/zz-docker.conf /usr/local/etc/php-fpm.d/zz-docker.conf
 
 WORKDIR /app
 
@@ -58,14 +59,13 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 
 RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh \
     && chmod +x /usr/local/bin/entrypoint.sh \
-    && mkdir -p var/cache var/log \
+    && mkdir -p /run/php var/cache var/log /var/cache/nginx \
     && chown -R www-data:www-data var public \
     && rm -f /etc/nginx/sites-enabled/default
 
 ENV APP_ENV=prod
 ENV APP_DEBUG=0
-ENV PORT=80
 
-EXPOSE 80
+EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
